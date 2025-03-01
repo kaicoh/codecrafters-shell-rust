@@ -1,4 +1,5 @@
 use crate::Result;
+use std::io::{self, Write};
 
 mod fs;
 
@@ -8,7 +9,7 @@ pub enum Command {
     Type(String),
     Exit(String),
     Empty,
-    Unknown(String),
+    Unknown(String, String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -39,7 +40,7 @@ impl Command {
             ("type", rest) => Self::Type(rest.into()),
             ("exit", rest) => Self::Exit(rest.into()),
             ("", _) => Self::Empty,
-            (other, _) => Self::Unknown(other.into()),
+            (other, rest) => Self::Unknown(other.into(), rest.into()),
         }
     }
 
@@ -52,15 +53,11 @@ impl Command {
 
                 match cmd {
                     Self::Empty => stdout!("{cmd_str}: not found"),
-                    Self::Unknown(ref name) => {
-                        let path = std::env::var("PATH").unwrap_or_default();
-
-                        match find_executable(&path, name) {
-                            Ok(Some(path)) => stdout!("{cmd_str} is {path}"),
-                            Ok(None) => stdout!("{cmd_str}: not found"),
-                            Err(err) => stdout!("{err}"),
-                        }
-                    }
+                    Self::Unknown(ref name, _) => match executable(name) {
+                        Ok(Some(path)) => stdout!("{cmd_str} is {path}"),
+                        Ok(None) => stdout!("{cmd_str}: not found"),
+                        Err(err) => stdout!("{err}"),
+                    },
                     _ => stdout!("{cmd_str} is a shell builtin"),
                 }
             }
@@ -69,7 +66,16 @@ impl Command {
                 Err(_) => stdout!("exit code should be a number"),
             },
             Self::Empty => stdout!(),
-            Self::Unknown(cmd) => stdout!("{cmd}: command not found"),
+            Self::Unknown(name, rest) => match executable(&name) {
+                Ok(Some(_)) => {
+                    if let Err(err) = run_cmd(&name, &rest) {
+                        eprintln!("{err}");
+                    }
+                    CommandResult::Continue
+                }
+                Ok(None) => stdout!("{name}: command not found"),
+                Err(err) => stdout!("{err}"),
+            },
         }
     }
 
@@ -79,7 +85,7 @@ impl Command {
             Self::Type(_) => "type",
             Self::Exit(_) => "exit",
             Self::Empty => "",
-            Self::Unknown(cmd) => cmd.as_str(),
+            Self::Unknown(cmd, _) => cmd.as_str(),
         }
     }
 }
@@ -89,6 +95,18 @@ fn split_token(inputs: &str) -> (&str, &str) {
         Some((first, rest)) => (first, rest.trim()),
         None => (inputs, ""),
     }
+}
+
+fn run_cmd(cmd: &str, arg: &str) -> Result<()> {
+    let output = std::process::Command::new(cmd).arg(arg).output()?;
+    io::stdout().write_all(&output.stdout)?;
+    io::stderr().write_all(&output.stderr)?;
+    Ok(())
+}
+
+fn executable(name: &str) -> Result<Option<String>> {
+    let path = std::env::var("PATH").unwrap_or_default();
+    find_executable(&path, name)
 }
 
 fn find_executable(path: &str, name: &str) -> Result<Option<String>> {
@@ -138,11 +156,14 @@ mod tests {
 
         let inputs = "invalid_command";
         let cmd = Command::new(inputs);
-        assert_eq!(cmd, Command::Unknown("invalid_command".into()));
+        assert_eq!(cmd, Command::Unknown("invalid_command".into(), "".into()));
 
         let inputs = "invalid_command foo bar";
         let cmd = Command::new(inputs);
-        assert_eq!(cmd, Command::Unknown("invalid_command".into()));
+        assert_eq!(
+            cmd,
+            Command::Unknown("invalid_command".into(), "foo bar".into())
+        );
     }
 
     #[test]
