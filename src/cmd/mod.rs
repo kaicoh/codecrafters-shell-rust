@@ -1,3 +1,7 @@
+use crate::Result;
+
+mod fs;
+
 #[derive(Debug, PartialEq)]
 pub enum Command {
     Echo(String),
@@ -47,7 +51,16 @@ impl Command {
                 let cmd_str = cmd.as_str();
 
                 match cmd {
-                    Self::Empty | Self::Unknown(_) => stdout!("{cmd_str}: not found"),
+                    Self::Empty => stdout!("{cmd_str}: not found"),
+                    Self::Unknown(ref name) => {
+                        let path = std::env::var("PATH").unwrap_or_default();
+
+                        match find_executable(&path, name) {
+                            Ok(Some(path)) => stdout!("{cmd_str} is {path}"),
+                            Ok(None) => stdout!("{cmd_str}: not found"),
+                            Err(err) => stdout!("{err}"),
+                        }
+                    }
                     _ => stdout!("{cmd_str} is a shell builtin"),
                 }
             }
@@ -76,6 +89,20 @@ fn split_token(inputs: &str) -> (&str, &str) {
         Some((first, rest)) => (first, rest.trim()),
         None => (inputs, ""),
     }
+}
+
+fn find_executable(path: &str, name: &str) -> Result<Option<String>> {
+    for dir in fs::list_dirs(path) {
+        if let Some(p) = fs::list_files(dir)?
+            .into_iter()
+            .find(fs::filename(name))
+            .and_then(|p| p.as_path().to_str().map(|v| v.to_string()))
+        {
+            return Ok(Some(p));
+        }
+    }
+
+    Ok(None)
 }
 
 #[cfg(test)]
