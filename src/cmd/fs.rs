@@ -36,6 +36,15 @@ pub fn filename(name: &str) -> Box<dyn Fn(&PathBuf) -> bool> {
     Box::new(move |path| path.file_name().is_some_and(|n| n == name.as_str()))
 }
 
+pub fn current_dir() -> Result<PathBuf> {
+    let dir = std::path::absolute(".")?;
+    Ok(dir)
+}
+
+pub fn path_stringify(path: PathBuf) -> Option<String> {
+    path.to_str().map(|p| p.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

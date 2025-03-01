@@ -8,6 +8,7 @@ pub enum Command {
     Echo(String),
     Type(String),
     Exit(String),
+    Pwd,
     Empty,
     Unknown(String, String),
 }
@@ -39,6 +40,7 @@ impl Command {
             ("echo", rest) => Self::Echo(rest.into()),
             ("type", rest) => Self::Type(rest.into()),
             ("exit", rest) => Self::Exit(rest.into()),
+            ("pwd", _) => Self::Pwd,
             ("", _) => Self::Empty,
             (other, rest) => Self::Unknown(other.into(), rest.into()),
         }
@@ -65,6 +67,15 @@ impl Command {
                 Ok(code) => CommandResult::Exit(code),
                 Err(_) => stdout!("exit code should be a number"),
             },
+            Self::Pwd => {
+                let current_dir = fs::current_dir().and_then(|p| {
+                    fs::path_stringify(p).ok_or(err!("Cannot stringify current directory path"))
+                });
+                match current_dir {
+                    Ok(dir) => stdout!("{dir}"),
+                    Err(err) => stdout!("{err}"),
+                }
+            }
             Self::Empty => stdout!(),
             Self::Unknown(name, rest) => match executable(&name) {
                 Ok(Some(_)) => {
@@ -84,6 +95,7 @@ impl Command {
             Self::Echo(_) => "echo",
             Self::Type(_) => "type",
             Self::Exit(_) => "exit",
+            Self::Pwd => "pwd",
             Self::Empty => "",
             Self::Unknown(cmd, _) => cmd.as_str(),
         }
@@ -114,7 +126,7 @@ fn find_executable(path: &str, name: &str) -> Result<Option<String>> {
         if let Some(p) = fs::list_files(dir)?
             .into_iter()
             .find(fs::filename(name))
-            .and_then(|p| p.as_path().to_str().map(|v| v.to_string()))
+            .and_then(fs::path_stringify)
         {
             return Ok(Some(p));
         }
