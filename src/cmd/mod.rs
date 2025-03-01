@@ -78,13 +78,21 @@ impl Command {
                     Err(err) => stdout!("{err}"),
                 }
             }
-            Self::Cd(dir) => match std::env::set_current_dir(&dir) {
-                Ok(_) => CommandResult::Continue,
-                Err(err) if err.kind() == ErrorKind::NotFound => {
-                    stdout!("cd: {dir}: No such file or directory")
+            Self::Cd(dir) => {
+                let target = if dir.as_str() == "~" {
+                    std::env::var("HOME").unwrap_or_default()
+                } else {
+                    dir.to_string()
+                };
+
+                match std::env::set_current_dir(&target) {
+                    Ok(_) => CommandResult::Continue,
+                    Err(err) if err.kind() == ErrorKind::NotFound => {
+                        stdout!("cd: {dir}: No such file or directory")
+                    }
+                    Err(err) => stdout!("{err}"),
                 }
-                Err(err) => stdout!("{err}"),
-            },
+            }
             Self::Empty => stdout!(),
             Self::Unknown(name, rest) => match executable(&name) {
                 Ok(Some(_)) => {
