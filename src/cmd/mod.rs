@@ -1,5 +1,5 @@
 use crate::Result;
-use std::io::{self, Write};
+use std::io::{self, ErrorKind, Write};
 
 mod fs;
 
@@ -9,6 +9,7 @@ pub enum Command {
     Type(String),
     Exit(String),
     Pwd,
+    Cd(String),
     Empty,
     Unknown(String, String),
 }
@@ -41,6 +42,7 @@ impl Command {
             ("type", rest) => Self::Type(rest.into()),
             ("exit", rest) => Self::Exit(rest.into()),
             ("pwd", _) => Self::Pwd,
+            ("cd", rest) => Self::Cd(rest.into()),
             ("", _) => Self::Empty,
             (other, rest) => Self::Unknown(other.into(), rest.into()),
         }
@@ -76,6 +78,13 @@ impl Command {
                     Err(err) => stdout!("{err}"),
                 }
             }
+            Self::Cd(dir) => match std::env::set_current_dir(&dir) {
+                Ok(_) => CommandResult::Continue,
+                Err(err) if err.kind() == ErrorKind::NotFound => {
+                    stdout!("cd: {dir}: No such file or directory")
+                }
+                Err(err) => stdout!("{err}"),
+            },
             Self::Empty => stdout!(),
             Self::Unknown(name, rest) => match executable(&name) {
                 Ok(Some(_)) => {
@@ -96,6 +105,7 @@ impl Command {
             Self::Type(_) => "type",
             Self::Exit(_) => "exit",
             Self::Pwd => "pwd",
+            Self::Cd(_) => "cd",
             Self::Empty => "",
             Self::Unknown(cmd, _) => cmd.as_str(),
         }
