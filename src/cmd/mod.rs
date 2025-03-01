@@ -19,8 +19,8 @@ macro_rules! stdout {
         CommandResult::Continue
     }};
     ($fmt:expr) => {{
-            println!($fmt);
-            CommandResult::Continue
+        println!($fmt);
+        CommandResult::Continue
     }};
     ($fmt:expr, $($arg:tt)+) => {{
         println!($fmt, $($arg)+);
