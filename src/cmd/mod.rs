@@ -1,10 +1,9 @@
-use super::{Error, Result};
-
 #[derive(Debug, PartialEq)]
 pub enum Command {
     Echo(String),
-    Exit(i32),
+    Exit(String),
     Empty,
+    Unknown(String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -13,38 +12,48 @@ pub enum CommandResult {
     Exit(i32),
 }
 
+macro_rules! stdout {
+    () => {{
+        println!();
+        CommandResult::Continue
+    }};
+    ($fmt:expr) => {{
+            println!($fmt);
+            CommandResult::Continue
+    }};
+    ($fmt:expr, $($arg:tt)+) => {{
+        println!($fmt, $($arg)+);
+        CommandResult::Continue
+    }};
+}
+
 impl Command {
-    pub fn new(inputs: &str) -> Result<Self> {
-        match inputs.split_once(' ') {
-            Some(("echo", rest)) => Ok(Self::Echo(rest.trim().into())),
-            Some(("exit", rest)) => {
-                let code = rest
-                    .trim()
-                    .parse::<i32>()
-                    .map_err(|_| Error::ParseCommand("exit code should be a number".into()))?;
-                Ok(Self::Exit(code))
-            }
-            Some((other, _)) => Err(Error::ParseCommand(format!("{}: command not found", other))),
-            None if !inputs.is_empty() => Err(Error::ParseCommand(format!(
-                "{}: command not found",
-                inputs
-            ))),
-            None => Ok(Self::Empty),
+    pub fn new(inputs: &str) -> Self {
+        match split_token(inputs.trim()) {
+            ("echo", rest) => Self::Echo(rest.into()),
+            ("exit", rest) => Self::Exit(rest.into()),
+            ("", _) => Self::Empty,
+            (other, _) => Self::Unknown(other.into()),
         }
     }
 
     pub fn run(self) -> CommandResult {
         match self {
-            Self::Echo(msg) => {
-                println!("{msg}");
-                CommandResult::Continue
-            }
-            Self::Exit(code) => CommandResult::Exit(code),
-            Self::Empty => {
-                println!();
-                CommandResult::Continue
-            }
+            Self::Echo(msg) => stdout!("{msg}"),
+            Self::Exit(code) => match code.parse::<i32>() {
+                Ok(code) => CommandResult::Exit(code),
+                Err(_) => stdout!("exit code should be a number"),
+            },
+            Self::Empty => stdout!(),
+            Self::Unknown(cmd) => stdout!("{cmd}: command not found"),
         }
+    }
+}
+
+fn split_token(inputs: &str) -> (&str, &str) {
+    match inputs.split_once(' ') {
+        Some((first, rest)) => (first, rest.trim()),
+        None => (inputs, ""),
     }
 }
 
@@ -53,42 +62,49 @@ mod tests {
     use super::*;
 
     #[test]
+    fn it_gets_the_first_token() {
+        let inputs = "echo foo bar";
+        let (first, rest) = split_token(inputs);
+        assert_eq!(first, "echo");
+        assert_eq!(rest, "foo bar");
+
+        let inputs = "echo  foo   bar";
+        let (first, rest) = split_token(inputs);
+        assert_eq!(first, "echo");
+        assert_eq!(rest, "foo   bar");
+    }
+
+    #[test]
     fn it_parses_to_cmd() {
         let inputs = "echo foo bar";
-        let cmd = Command::new(inputs).unwrap();
+        let cmd = Command::new(inputs);
         assert_eq!(cmd, Command::Echo("foo bar".into()));
 
         let inputs = "exit 0";
-        let cmd = Command::new(inputs).unwrap();
-        assert_eq!(cmd, Command::Exit(0));
+        let cmd = Command::new(inputs);
+        assert_eq!(cmd, Command::Exit("0".into()));
 
         let inputs = "";
-        let cmd = Command::new(inputs).unwrap();
+        let cmd = Command::new(inputs);
         assert_eq!(cmd, Command::Empty);
 
-        match Command::new("invalid_command") {
-            Err(Error::ParseCommand(msg)) => {
-                assert_eq!(msg, "invalid_command: command not found");
-            }
-            _ => unreachable!(),
-        }
+        let inputs = "invalid_command";
+        let cmd = Command::new(inputs);
+        assert_eq!(cmd, Command::Unknown("invalid_command".into()));
 
-        match Command::new("invalid_command foo bar") {
-            Err(Error::ParseCommand(msg)) => {
-                assert_eq!(msg, "invalid_command: command not found");
-            }
-            _ => unreachable!(),
-        }
+        let inputs = "invalid_command foo bar";
+        let cmd = Command::new(inputs);
+        assert_eq!(cmd, Command::Unknown("invalid_command".into()));
     }
 
     #[test]
     fn it_ignores_additional_spaces() {
         let inputs = "echo  foo   bar";
-        let cmd = Command::new(inputs).unwrap();
+        let cmd = Command::new(inputs);
         assert_eq!(cmd, Command::Echo("foo   bar".into()));
 
         let inputs = "exit  1";
-        let cmd = Command::new(inputs).unwrap();
-        assert_eq!(cmd, Command::Exit(1));
+        let cmd = Command::new(inputs);
+        assert_eq!(cmd, Command::Exit("1".into()));
     }
 }

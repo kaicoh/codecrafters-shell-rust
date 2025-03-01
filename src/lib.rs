@@ -27,11 +27,5 @@ pub fn repl(f: impl Fn(&str) -> CommandResult) -> Result<()> {
 }
 
 pub fn exec_cmd(inputs: &str) -> CommandResult {
-    match Command::new(inputs) {
-        Ok(cmd) => cmd.run(),
-        Err(err) => {
-            println!("{err}");
-            CommandResult::Continue
-        }
-    }
+    Command::new(inputs).run()
 }
