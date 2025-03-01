@@ -1,6 +1,7 @@
 #[derive(Debug, PartialEq)]
 pub enum Command {
     Echo(String),
+    Type(String),
     Exit(String),
     Empty,
     Unknown(String),
@@ -31,6 +32,7 @@ impl Command {
     pub fn new(inputs: &str) -> Self {
         match split_token(inputs.trim()) {
             ("echo", rest) => Self::Echo(rest.into()),
+            ("type", rest) => Self::Type(rest.into()),
             ("exit", rest) => Self::Exit(rest.into()),
             ("", _) => Self::Empty,
             (other, _) => Self::Unknown(other.into()),
@@ -40,12 +42,31 @@ impl Command {
     pub fn run(self) -> CommandResult {
         match self {
             Self::Echo(msg) => stdout!("{msg}"),
+            Self::Type(rest) => {
+                let cmd = Self::new(&rest);
+                let cmd_str = cmd.as_str();
+
+                match cmd {
+                    Self::Empty | Self::Unknown(_) => stdout!("{cmd_str}: not found"),
+                    _ => stdout!("{cmd_str} is a shell builtin"),
+                }
+            }
             Self::Exit(code) => match code.parse::<i32>() {
                 Ok(code) => CommandResult::Exit(code),
                 Err(_) => stdout!("exit code should be a number"),
             },
             Self::Empty => stdout!(),
             Self::Unknown(cmd) => stdout!("{cmd}: command not found"),
+        }
+    }
+
+    fn as_str(&self) -> &str {
+        match self {
+            Self::Echo(_) => "echo",
+            Self::Type(_) => "type",
+            Self::Exit(_) => "exit",
+            Self::Empty => "",
+            Self::Unknown(cmd) => cmd.as_str(),
         }
     }
 }
