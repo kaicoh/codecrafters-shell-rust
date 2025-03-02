@@ -43,7 +43,7 @@ fn split_token(str: &str) -> (String, &str) {
     if str.starts_with(SINGLE_QUOTE) {
         split_quoted(SINGLE_QUOTE, str)
     } else if str.starts_with(DOUBLE_QUOTE) {
-        split_quoted(DOUBLE_QUOTE, str)
+        split_double_quoted(str)
     } else {
         split_not_quoted(str)
     }
@@ -63,12 +63,44 @@ fn split_quoted(quote: char, token: &str) -> (String, &str) {
     }
 }
 
+fn split_double_quoted(token: &str) -> (String, &str) {
+    let token = &token[1..];
+
+    let mut chars = token.char_indices();
+    let mut tokens: Vec<char> = vec![];
+
+    while let Some((idx, c)) = chars.next() {
+        if c == DOUBLE_QUOTE {
+            if idx < token.len() {
+                return (tokens.into_iter().collect(), &token[(idx + 1)..]);
+            } else {
+                return (tokens.into_iter().collect(), "");
+            }
+        }
+
+        if c == '\\' {
+            if let Some((_, c)) = chars.next() {
+                if c == '\\' || c == '$' || c == '"' || c == '\n' {
+                    tokens.push(c);
+                } else {
+                    tokens.push('\\');
+                    tokens.push(c);
+                }
+            }
+        } else {
+            tokens.push(c);
+        }
+    }
+
+    (tokens.into_iter().collect(), "")
+}
+
 fn split_not_quoted(token: &str) -> (String, &str) {
     let mut chars = token.char_indices();
     let mut tokens: Vec<char> = vec![];
 
     while let Some((idx, c)) = chars.next() {
-        if c.is_whitespace() || c == '\'' || c == '"' {
+        if c.is_whitespace() || c == SINGLE_QUOTE || c == DOUBLE_QUOTE {
             return (tokens.into_iter().collect(), &token[idx..]);
         }
 
