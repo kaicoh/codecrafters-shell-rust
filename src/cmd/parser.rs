@@ -21,11 +21,11 @@ impl Iterator for Args<'_> {
         }
 
         let (mut token, mut rest) = split_token(self.inner);
-        let mut str = String::from(token);
+        let mut str = token;
 
         while !rest.is_empty() && !rest.starts_with(' ') {
             (token, rest) = split_token(rest.trim());
-            str.push_str(token);
+            str.push_str(&token);
         }
 
         self.inner = rest.trim();
@@ -39,35 +39,49 @@ impl<'a> From<&'a str> for Args<'a> {
     }
 }
 
-fn split_token(str: &str) -> (&str, &str) {
+fn split_token(str: &str) -> (String, &str) {
     if str.starts_with(SINGLE_QUOTE) {
         split_quoted(SINGLE_QUOTE, str)
     } else if str.starts_with(DOUBLE_QUOTE) {
         split_quoted(DOUBLE_QUOTE, str)
     } else {
-        match str.find(terminator) {
-            Some(pos) => (&str[..pos], &str[pos..]),
-            None => (str, ""),
-        }
+        split_not_quoted(str)
     }
 }
 
-fn split_quoted(quote: char, token: &str) -> (&str, &str) {
+fn split_quoted(quote: char, token: &str) -> (String, &str) {
     let token = &token[1..];
 
     if let Some(pos) = token.find(quote) {
         if pos < token.len() {
-            (&token[..pos], &token[(pos + 1)..])
+            (token[..pos].to_string(), &token[(pos + 1)..])
         } else {
-            (&token[..pos], "")
+            (token[..pos].to_string(), "")
         }
     } else {
-        (token, "")
+        (token.to_string(), "")
     }
 }
 
-fn terminator(c: char) -> bool {
-    c.is_whitespace() || c == '\'' || c == '"'
+fn split_not_quoted(token: &str) -> (String, &str) {
+    let mut chars = token.char_indices();
+    let mut tokens: Vec<char> = vec![];
+
+    while let Some((idx, c)) = chars.next() {
+        if c.is_whitespace() || c == '\'' || c == '"' {
+            return (tokens.into_iter().collect(), &token[idx..]);
+        }
+
+        if c == '\\' {
+            if let Some((_, c)) = chars.next() {
+                tokens.push(c);
+            }
+        } else {
+            tokens.push(c);
+        }
+    }
+
+    (tokens.into_iter().collect(), "")
 }
 
 #[cfg(test)]
@@ -102,7 +116,7 @@ mod tests {
     }
 
     #[test]
-    fn it_split_quoted_strings() {
+    fn it_splits_quoted_strings() {
         let str = "\'foo bar\'";
         let (token, rest) = split_quoted(SINGLE_QUOTE, str);
         assert_eq!(token, "foo bar");
@@ -116,6 +130,19 @@ mod tests {
         let str = "\'foo";
         let (token, rest) = split_quoted(SINGLE_QUOTE, str);
         assert_eq!(token, "foo");
+        assert_eq!(rest, "");
+
+        let str = "\'before\\   after\'";
+        let (token, rest) = split_quoted(SINGLE_QUOTE, str);
+        assert_eq!(token, "before\\   after");
+        assert_eq!(rest, "");
+    }
+
+    #[test]
+    fn it_splits_not_quoted_strings() {
+        let str = "world\\ \\ \\ \\ \\ \\ script";
+        let (token, rest) = split_not_quoted(str);
+        assert_eq!(token, "world      script");
         assert_eq!(rest, "");
     }
 }
