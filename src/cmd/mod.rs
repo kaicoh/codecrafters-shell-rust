@@ -9,12 +9,12 @@ use parser::Args;
 #[derive(Debug, PartialEq)]
 pub enum Command<'a> {
     Echo(Args<'a>),
-    Type(String),
+    Type(Args<'a>),
     Exit(Args<'a>),
     Pwd,
     Cd(Args<'a>),
     Empty,
-    Unknown(&'a str, Args<'a>),
+    Unknown(String, Args<'a>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -39,15 +39,18 @@ macro_rules! stdout {
 }
 
 impl<'a> Command<'a> {
-    pub fn new(inputs: &'a str) -> Self {
-        match split_token(inputs.trim()) {
-            ("echo", rest) => Self::Echo(rest.into()),
-            ("type", rest) => Self::Type(rest.into()),
-            ("exit", rest) => Self::Exit(rest.into()),
-            ("pwd", _) => Self::Pwd,
-            ("cd", rest) => Self::Cd(rest.into()),
-            ("", _) => Self::Empty,
-            (cmd, rest) => Self::Unknown(cmd, rest.into()),
+    pub fn new(inputs: impl Into<Args<'a>>) -> Self {
+        let mut args: Args<'a> = inputs.into();
+        let cmd = args.next().unwrap_or_default();
+
+        match cmd.as_str() {
+            "echo" => Self::Echo(args),
+            "type" => Self::Type(args),
+            "exit" => Self::Exit(args),
+            "pwd" => Self::Pwd,
+            "cd" => Self::Cd(args),
+            "" => Self::Empty,
+            _ => Self::Unknown(cmd, args),
         }
     }
 
@@ -57,13 +60,13 @@ impl<'a> Command<'a> {
                 let msg = args.into_iter().collect::<Vec<String>>().join(" ");
                 stdout!("{msg}")
             }
-            Self::Type(rest) => {
-                let cmd = Command::new(&rest);
+            Self::Type(args) => {
+                let cmd = Command::new(args);
                 let cmd_str = cmd.as_str();
 
                 match cmd {
                     Command::Empty => stdout!("{cmd_str}: not found"),
-                    Command::Unknown(name, _) => match executable(name) {
+                    Command::Unknown(ref name, _) => match executable(name) {
                         Ok(Some(path)) => stdout!("{cmd_str} is {path}"),
                         Ok(None) => stdout!("{cmd_str}: not found"),
                         Err(err) => stdout!("{err}"),
@@ -104,9 +107,9 @@ impl<'a> Command<'a> {
                 }
             }
             Self::Empty => stdout!(),
-            Self::Unknown(name, rest) => match executable(name) {
+            Self::Unknown(name, rest) => match executable(&name) {
                 Ok(Some(_)) => {
-                    if let Err(err) = run_cmd(name, rest) {
+                    if let Err(err) = run_cmd(&name, rest) {
                         eprintln!("{err}");
                     }
                     CommandResult::Continue
@@ -127,13 +130,6 @@ impl<'a> Command<'a> {
             Self::Empty => "",
             Self::Unknown(cmd, _) => cmd,
         }
-    }
-}
-
-fn split_token(inputs: &str) -> (&str, &str) {
-    match inputs.split_once(' ') {
-        Some((first, rest)) => (first, rest.trim()),
-        None => (inputs, ""),
     }
 }
 
@@ -168,19 +164,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_gets_the_first_token() {
-        let inputs = "echo foo bar";
-        let (first, rest) = split_token(inputs);
-        assert_eq!(first, "echo");
-        assert_eq!(rest, "foo bar");
-
-        let inputs = "echo  foo   bar";
-        let (first, rest) = split_token(inputs);
-        assert_eq!(first, "echo");
-        assert_eq!(rest, "foo   bar");
-    }
-
-    #[test]
     fn it_parses_to_cmd() {
         let inputs = "echo foo bar";
         let cmd = Command::new(inputs);
@@ -196,11 +179,14 @@ mod tests {
 
         let inputs = "invalid_command";
         let cmd = Command::new(inputs);
-        assert_eq!(cmd, Command::Unknown("invalid_command", "".into()));
+        assert_eq!(cmd, Command::Unknown("invalid_command".into(), "".into()));
 
         let inputs = "invalid_command foo bar";
         let cmd = Command::new(inputs);
-        assert_eq!(cmd, Command::Unknown("invalid_command", "foo bar".into()));
+        assert_eq!(
+            cmd,
+            Command::Unknown("invalid_command".into(), "foo bar".into())
+        );
     }
 
     #[test]
