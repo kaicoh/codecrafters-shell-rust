@@ -66,7 +66,7 @@ fn open(append: bool) -> OpenFile {
         OpenOptions::new()
             .write(true)
             .append(append)
-            .create(!append)
+            .create(true)
             .truncate(!append)
             .open(path)
             .map_err(Error::from)
