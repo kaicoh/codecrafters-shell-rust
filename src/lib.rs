@@ -1,4 +1,4 @@
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 
 #[macro_use]
 mod macros;
@@ -20,8 +20,18 @@ pub fn repl(f: impl Fn(&str) -> Result<()>) -> Result<()> {
         io::stdout().flush()?;
 
         let stdin = io::stdin();
-        let mut input = String::new();
-        stdin.read_line(&mut input)?;
+        let mut buf: Vec<u8> = vec![];
+
+        for byte in stdin.bytes() {
+            let byte = byte?;
+            buf.push(byte);
+
+            if byte == b'\n' {
+                break;
+            }
+        }
+
+        let input = String::from_utf8(buf)?;
 
         f(input.as_str().trim())?;
     }
