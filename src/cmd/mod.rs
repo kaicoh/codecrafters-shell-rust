@@ -1,143 +1,136 @@
-use crate::Result;
-use std::io::{self, ErrorKind, Write};
+use super::{writer::Writer, Result};
+
+use std::fmt;
+use std::io::ErrorKind;
 
 mod fs;
-mod parser;
-
-use parser::Args;
 
 #[derive(Debug, PartialEq)]
-pub enum Command<'a> {
-    Echo(Args<'a>),
-    Type(Args<'a>),
-    Exit(Args<'a>),
+pub struct Command {
+    r#type: CommandType,
+    args: Vec<String>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum CommandType {
+    Echo,
+    Type,
+    Exit,
     Pwd,
-    Cd(Args<'a>),
+    Cd,
     Empty,
-    Unknown(String, Args<'a>),
+    Unknown(String),
 }
 
-#[derive(Debug, PartialEq)]
-pub enum CommandResult {
-    Continue,
-    Exit(i32),
-}
+impl Command {
+    pub fn new(tokens: Vec<String>) -> Self {
+        let mut tokens = tokens.into_iter();
+        let cmd = tokens.next().unwrap_or_default();
 
-macro_rules! stdout {
-    () => {{
-        println!();
-        CommandResult::Continue
-    }};
-    ($fmt:expr) => {{
-        println!($fmt);
-        CommandResult::Continue
-    }};
-    ($fmt:expr, $($arg:tt)+) => {{
-        println!($fmt, $($arg)+);
-        CommandResult::Continue
-    }};
-}
+        let r#type = match cmd.as_str() {
+            "echo" => CommandType::Echo,
+            "type" => CommandType::Type,
+            "exit" => CommandType::Exit,
+            "pwd" => CommandType::Pwd,
+            "cd" => CommandType::Cd,
+            "" => CommandType::Empty,
+            _ => CommandType::Unknown(cmd),
+        };
 
-impl<'a> Command<'a> {
-    pub fn new(inputs: impl Into<Args<'a>>) -> Self {
-        let mut args: Args<'a> = inputs.into();
-        let cmd = args.next().unwrap_or_default();
-
-        match cmd.as_str() {
-            "echo" => Self::Echo(args),
-            "type" => Self::Type(args),
-            "exit" => Self::Exit(args),
-            "pwd" => Self::Pwd,
-            "cd" => Self::Cd(args),
-            "" => Self::Empty,
-            _ => Self::Unknown(cmd, args),
+        Self {
+            r#type,
+            args: tokens.collect(),
         }
     }
 
-    pub fn run(self) -> CommandResult {
-        match self {
-            Self::Echo(args) => {
-                let msg = args.into_iter().collect::<Vec<String>>().join(" ");
-                stdout!("{msg}")
+    pub fn run(self, w: &mut Writer) -> Result<()> {
+        match &self.r#type {
+            CommandType::Echo => {
+                let msg = self.args.join(" ");
+                w.writeln(msg)
             }
-            Self::Type(args) => {
-                let cmd = Command::new(args);
-                let cmd_str = cmd.as_str();
+            CommandType::Type => {
+                let cmd = Command::new(self.args);
 
-                match cmd {
-                    Command::Empty => stdout!("{cmd_str}: not found"),
-                    Command::Unknown(ref name, _) => match executable(name) {
-                        Ok(Some(path)) => stdout!("{cmd_str} is {path}"),
-                        Ok(None) => stdout!("{cmd_str}: not found"),
-                        Err(err) => stdout!("{err}"),
+                match cmd.r#type {
+                    CommandType::Empty => w.writeln(format!("{}: not found", cmd.r#type)),
+                    CommandType::Unknown(ref name) => match executable(name) {
+                        Ok(Some(path)) => w.writeln(format!("{} is {path}", cmd.r#type)),
+                        Ok(None) => w.writeln(format!("{}: not found", cmd.r#type)),
+                        Err(err) => w.ewriteln(format!("{err}")),
                     },
-                    _ => stdout!("{cmd_str} is a shell builtin"),
+                    _ => w.writeln(format!("{} is a shell builtin", cmd.r#type)),
                 }
             }
-            Self::Exit(mut args) => {
-                let code = args.next().unwrap_or_default();
+            CommandType::Exit => {
+                let code = self.args.into_iter().next().unwrap_or_default();
                 match code.parse::<i32>() {
-                    Ok(code) => CommandResult::Exit(code),
-                    Err(_) => stdout!("exit code should be a number"),
+                    Ok(code) => {
+                        std::process::exit(code);
+                    }
+                    Err(_) => w.ewriteln("exit code should be a number"),
                 }
             }
-            Self::Pwd => {
+            CommandType::Pwd => {
                 let current_dir = fs::current_dir().and_then(|p| {
                     fs::path_stringify(p).ok_or(err!("Cannot stringify current directory path"))
                 });
                 match current_dir {
-                    Ok(dir) => stdout!("{dir}"),
-                    Err(err) => stdout!("{err}"),
+                    Ok(dir) => w.writeln(dir),
+                    Err(err) => w.ewriteln(format!("{err}")),
                 }
             }
-            Self::Cd(mut args) => {
-                let dir = args.next().unwrap_or_default();
+            CommandType::Cd => {
+                let dir = self.args.into_iter().next().unwrap_or_default();
                 let target = if dir == "~" {
                     std::env::var("HOME").unwrap_or_default()
                 } else {
                     dir.to_string()
                 };
 
-                match std::env::set_current_dir(&target) {
-                    Ok(_) => CommandResult::Continue,
-                    Err(err) if err.kind() == ErrorKind::NotFound => {
-                        stdout!("cd: {dir}: No such file or directory")
+                if let Err(err) = std::env::set_current_dir(&target) {
+                    if err.kind() == ErrorKind::NotFound {
+                        w.ewriteln(format!("cd: {dir}: No such file or directory"))?;
+                    } else {
+                        w.ewriteln(format!("{err}"))?;
                     }
-                    Err(err) => stdout!("{err}"),
                 }
+                Ok(())
             }
-            Self::Empty => stdout!(),
-            Self::Unknown(name, rest) => match executable(&name) {
-                Ok(Some(_)) => {
-                    if let Err(err) = run_cmd(&name, rest) {
-                        eprintln!("{err}");
+            CommandType::Empty => Ok(()),
+            CommandType::Unknown(name) => match executable(name) {
+                Ok(Some(_)) => match run_cmd(name, &self.args) {
+                    Ok(output) => {
+                        w.write(&output.stdout)?;
+                        w.ewrite(&output.stderr)
                     }
-                    CommandResult::Continue
-                }
-                Ok(None) => stdout!("{name}: command not found"),
-                Err(err) => stdout!("{err}"),
+                    Err(err) => w.ewriteln(format!("{err}")),
+                },
+                Ok(None) => w.ewriteln(format!("{name}: command not found")),
+                Err(err) => w.ewriteln(format!("{err}")),
             },
-        }
-    }
-
-    fn as_str(&self) -> &str {
-        match self {
-            Self::Echo(_) => "echo",
-            Self::Type(_) => "type",
-            Self::Exit(_) => "exit",
-            Self::Pwd => "pwd",
-            Self::Cd(_) => "cd",
-            Self::Empty => "",
-            Self::Unknown(cmd, _) => cmd,
         }
     }
 }
 
-fn run_cmd(name: &str, args: Args<'_>) -> Result<()> {
+impl fmt::Display for CommandType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let str = match self {
+            Self::Echo => "echo",
+            Self::Type => "type",
+            Self::Exit => "exit",
+            Self::Pwd => "pwd",
+            Self::Cd => "cd",
+            Self::Empty => "",
+            Self::Unknown(cmd) => cmd.as_str(),
+        };
+        write!(f, "{str}")
+    }
+}
+
+fn run_cmd(name: &str, args: &[String]) -> Result<std::process::Output> {
     let output = std::process::Command::new(name).args(args).output()?;
-    io::stdout().write_all(&output.stdout)?;
-    io::stderr().write_all(&output.stderr)?;
-    Ok(())
+    Ok(output)
 }
 
 fn executable(name: &str) -> Result<Option<String>> {
@@ -165,38 +158,44 @@ mod tests {
 
     #[test]
     fn it_parses_to_cmd() {
-        let inputs = "echo foo bar";
+        let inputs = vec!["echo".into(), "foo".into(), "bar".into()];
         let cmd = Command::new(inputs);
-        assert_eq!(cmd, Command::Echo("foo bar".into()));
+        let expected = Command {
+            r#type: CommandType::Echo,
+            args: vec!["foo".into(), "bar".into()],
+        };
+        assert_eq!(cmd, expected);
 
-        let inputs = "exit 0";
+        let inputs = vec!["exit".into(), "0".into()];
         let cmd = Command::new(inputs);
-        assert_eq!(cmd, Command::Exit("0".into()));
+        let expected = Command {
+            r#type: CommandType::Exit,
+            args: vec!["0".into()],
+        };
+        assert_eq!(cmd, expected);
 
-        let inputs = "";
+        let inputs = vec![];
         let cmd = Command::new(inputs);
-        assert_eq!(cmd, Command::Empty);
+        let expected = Command {
+            r#type: CommandType::Empty,
+            args: vec![],
+        };
+        assert_eq!(cmd, expected);
 
-        let inputs = "invalid_command";
+        let inputs = vec!["invalid_command".into()];
         let cmd = Command::new(inputs);
-        assert_eq!(cmd, Command::Unknown("invalid_command".into(), "".into()));
+        let expected = Command {
+            r#type: CommandType::Unknown("invalid_command".into()),
+            args: vec![],
+        };
+        assert_eq!(cmd, expected);
 
-        let inputs = "invalid_command foo bar";
+        let inputs = vec!["invalid_command".into(), "foo".into(), "bar".into()];
         let cmd = Command::new(inputs);
-        assert_eq!(
-            cmd,
-            Command::Unknown("invalid_command".into(), "foo bar".into())
-        );
-    }
-
-    #[test]
-    fn it_ignores_additional_spaces() {
-        let inputs = "echo  foo   bar";
-        let cmd = Command::new(inputs);
-        assert_eq!(cmd, Command::Echo("foo   bar".into()));
-
-        let inputs = "exit  1";
-        let cmd = Command::new(inputs);
-        assert_eq!(cmd, Command::Exit("1".into()));
+        let expected = Command {
+            r#type: CommandType::Unknown("invalid_command".into()),
+            args: vec!["foo".into(), "bar".into()],
+        };
+        assert_eq!(cmd, expected);
     }
 }
