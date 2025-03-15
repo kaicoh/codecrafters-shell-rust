@@ -46,9 +46,11 @@ pub fn repl(f: impl Fn(&str) -> Result<()>) -> Result<()> {
                         write!(term, "\x07")?;
                     }
                 }
-                _ => {
-                    unimplemented!()
+                Key::Backspace => {
+                    term.clear_chars(1)?;
+                    buf.pop();
                 }
+                _ => {}
             }
         }
 
