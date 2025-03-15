@@ -1,5 +1,6 @@
 use super::{writer::Writer, Result};
 
+use std::collections::HashSet;
 use std::fmt;
 use std::io::ErrorKind;
 
@@ -152,7 +153,7 @@ fn run_cmd(name: &str, args: &[String]) -> Result<std::process::Output> {
     Ok(output)
 }
 
-fn all_executable_names() -> Vec<String> {
+fn all_executable_names() -> HashSet<String> {
     let path = std::env::var("PATH").unwrap_or_default();
     fs::list_dirs(&path)
         .into_iter()
