@@ -42,6 +42,8 @@ pub fn repl(f: impl Fn(&str) -> Result<()>) -> Result<()> {
                         let completed = format!("{cmd} ");
                         write!(term, "$ {completed}")?;
                         buf = completed.into_bytes();
+                    } else {
+                        write!(term, "\x07")?;
                     }
                 }
                 _ => {
