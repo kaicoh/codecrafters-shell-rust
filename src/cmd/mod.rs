@@ -50,7 +50,9 @@ impl Command {
             }
         }
 
-        None
+        all_executable_names()
+            .into_iter()
+            .find(|name| name.starts_with(s))
     }
 
     pub fn run(self, w: &mut Writer) -> Result<()> {
@@ -147,6 +149,20 @@ impl CommandType {
 fn run_cmd(name: &str, args: &[String]) -> Result<std::process::Output> {
     let output = std::process::Command::new(name).args(args).output()?;
     Ok(output)
+}
+
+fn all_executable_names() -> Vec<String> {
+    let path = std::env::var("PATH").unwrap_or_default();
+    fs::list_dirs(&path)
+        .into_iter()
+        .filter_map(|dir| fs::list_files(dir).ok())
+        .flatten()
+        .filter_map(|path| {
+            path.file_name()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_string())
+        })
+        .collect()
 }
 
 fn executable(name: &str) -> Result<Option<String>> {
