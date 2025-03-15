@@ -22,6 +22,7 @@ pub fn repl(f: impl Fn(&str) -> Result<()>) -> Result<()> {
         write!(term, "$ ")?;
 
         let mut buf: Vec<u8> = vec![];
+        let mut candidates: Vec<String> = vec![];
 
         while let Ok(key) = term.read_key() {
             match key {
@@ -36,15 +37,26 @@ pub fn repl(f: impl Fn(&str) -> Result<()>) -> Result<()> {
                 Key::Tab => {
                     let input = std::str::from_utf8(&buf)?;
 
-                    if let Some(cmd) = Command::autocomplete(input) {
-                        term.clear_line()?;
+                    if candidates.is_empty() {
+                        candidates = Command::autocomplete(input);
 
-                        let completed = format!("{cmd} ");
-                        write!(term, "$ {completed}")?;
-                        buf = completed.into_bytes();
+                        if candidates.len() == 1 {
+                            if let Some(cmd) = candidates.pop() {
+                                term.clear_line()?;
+
+                                let completed = format!("{cmd} ");
+                                write!(term, "$ {completed}")?;
+                                buf = completed.into_bytes();
+                            }
+                        } else {
+                            write!(term, "\x07")?;
+                        }
                     } else {
-                        write!(term, "\x07")?;
+                        writeln!(term, "\n{}", candidates.join("  "))?;
+                        write!(term, "$ {input}")?;
                     }
+
+                    continue;
                 }
                 Key::Backspace => {
                     term.clear_chars(1)?;
@@ -52,6 +64,8 @@ pub fn repl(f: impl Fn(&str) -> Result<()>) -> Result<()> {
                 }
                 _ => {}
             }
+
+            candidates = vec![];
         }
 
         let input = std::str::from_utf8(&buf)?;

@@ -43,16 +43,17 @@ impl Command {
         }
     }
 
-    pub fn autocomplete(s: &str) -> Option<String> {
+    pub fn autocomplete(s: &str) -> Vec<String> {
         for cmd in CommandType::builtins() {
             if cmd.to_string().starts_with(s) {
-                return Some(cmd.to_string());
+                return vec![cmd.to_string()];
             }
         }
 
         all_executable_names()
             .into_iter()
-            .find(|name| name.starts_with(s))
+            .filter(|name| name.starts_with(s))
+            .collect()
     }
 
     pub fn run(self, w: &mut Writer) -> Result<()> {
@@ -234,9 +235,9 @@ mod tests {
     #[test]
     fn it_completes_the_command() {
         let subject = Command::autocomplete("ech");
-        assert_eq!(subject, Some("echo".into()));
+        assert_eq!(subject, vec!["echo".to_string()]);
 
         let subject = Command::autocomplete("exi");
-        assert_eq!(subject, Some("exit".into()));
+        assert_eq!(subject, vec!["exit".to_string()]);
     }
 }
