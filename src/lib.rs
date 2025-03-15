@@ -50,7 +50,16 @@ pub fn repl(f: impl Fn(&str) -> Result<()>) -> Result<()> {
                                 buf = completed.into_bytes();
                             }
                         } else {
-                            write!(term, "\x07")?;
+                            let common = common_parts(&candidates);
+
+                            if input.len() < common.len() {
+                                term.clear_line()?;
+
+                                write!(term, "$ {common}")?;
+                                buf = common.into_bytes();
+                            } else {
+                                write!(term, "\x07")?;
+                            }
                         }
                     } else {
                         writeln!(term, "\n{}", candidates.join("  "))?;
@@ -79,4 +88,52 @@ pub fn exec_cmd(inputs: &str) -> Result<()> {
     let input = Inputs::parse(inputs);
     let mut writer = input.writer()?;
     Command::new(input.args).run(&mut writer)
+}
+
+fn common_parts(names: &[String]) -> String {
+    if let Some(name) = names.first() {
+        for i in 1..(name.len() + 1) {
+            let pattern = &name[..i];
+
+            if !names.iter().all(|n| n.starts_with(pattern)) {
+                return name[..i - 1].to_string();
+            }
+        }
+
+        name.to_string()
+    } else {
+        "".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn it_extracts_common_parts() {
+        let names = vec![];
+        let subject = common_parts(&names);
+        assert_eq!(subject, "");
+
+        let names = vec!["foo".to_string(), "bar".to_string()];
+        let subject = common_parts(&names);
+        assert_eq!(subject, "");
+
+        let names = vec!["foo".to_string(), "far".to_string()];
+        let subject = common_parts(&names);
+        assert_eq!(subject, "f");
+
+        let names = vec!["foo_bar".to_string(), "foo_baz".to_string()];
+        let subject = common_parts(&names);
+        assert_eq!(subject, "foo_ba");
+
+        let names = vec![
+            "foo_bar".to_string(),
+            "foo_baz".to_string(),
+            "foo_c".to_string(),
+        ];
+        let subject = common_parts(&names);
+        assert_eq!(subject, "foo_");
+    }
 }
