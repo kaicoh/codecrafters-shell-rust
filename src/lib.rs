@@ -39,6 +39,7 @@ pub fn repl(f: impl Fn(&str) -> Result<()>) -> Result<()> {
 
                     if candidates.is_empty() {
                         candidates = Command::autocomplete(input);
+                        candidates.sort();
 
                         if candidates.len() == 1 {
                             if let Some(cmd) = candidates.pop() {
