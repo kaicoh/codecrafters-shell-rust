@@ -43,6 +43,16 @@ impl Command {
         }
     }
 
+    pub fn autocomplete(s: &str) -> Option<String> {
+        for cmd in CommandType::builtins() {
+            if cmd.to_string().starts_with(s) {
+                return Some(cmd.to_string());
+            }
+        }
+
+        None
+    }
+
     pub fn run(self, w: &mut Writer) -> Result<()> {
         match &self.r#type {
             CommandType::Echo => {
@@ -128,6 +138,12 @@ impl fmt::Display for CommandType {
     }
 }
 
+impl CommandType {
+    fn builtins() -> impl Iterator<Item = Self> {
+        [Self::Echo, Self::Type, Self::Exit, Self::Pwd, Self::Cd].into_iter()
+    }
+}
+
 fn run_cmd(name: &str, args: &[String]) -> Result<std::process::Output> {
     let output = std::process::Command::new(name).args(args).output()?;
     Ok(output)
@@ -197,5 +213,14 @@ mod tests {
             args: vec!["foo".into(), "bar".into()],
         };
         assert_eq!(cmd, expected);
+    }
+
+    #[test]
+    fn it_completes_the_command() {
+        let subject = Command::autocomplete("ech");
+        assert_eq!(subject, Some("echo".into()));
+
+        let subject = Command::autocomplete("exi");
+        assert_eq!(subject, Some("exit".into()));
     }
 }
